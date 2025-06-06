@@ -27,11 +27,15 @@ defmodule Samly.SPHandler do
 
   def consume_signin_response(conn) do
     %IdpData{id: idp_id} = idp = conn.private[:samly_idp]
+
     %IdpData{pre_session_create_pipeline: pipeline, esaml_sp_rec: sp_rec} = idp
+
     sp = ensure_sp_uris_set(sp_rec, conn)
 
     saml_encoding = conn.body_params["SAMLEncoding"]
+
     saml_response = conn.body_params["SAMLResponse"]
+
     relay_state = conn.body_params["RelayState"] |> safe_decode_www_form()
 
     with {:ok, assertion} <- Helper.decode_idp_auth_resp(sp, saml_encoding, saml_response),
@@ -45,7 +49,9 @@ defmodule Samly.SPHandler do
 
       nameid = assertion.subject.name
       assertion_key = {idp_id, nameid}
+
       conn = State.put_assertion(conn, assertion_key, assertion)
+
       target_url = auth_target_url(conn, assertion, relay_state)
 
       conn
@@ -54,15 +60,7 @@ defmodule Samly.SPHandler do
       |> redirect(302, target_url)
     else
       {:halted, conn} -> conn
-      {:error, reason} ->
-        case idp do
-          %IdpData{debug_mode: true} ->
-            conn
-            |> put_resp_header("content-type", "text/html")
-            |> send_resp(403, "<html><body><div><h1>access_denied</h1><p><b>Error:</b><br /><pre><code>#{inspect(reason)}</code></pre></p><p><b>Raw Response:</b><br /><pre><code>#{saml_response}</code></pre></p></div></body></html")
-          _ ->
-            conn |> send_resp(403, "access_denied #{inspect(reason)}")
-        end
+      {:error, reason} -> conn |> send_resp(403, "access_denied #{inspect(reason)}")
       _ -> conn |> send_resp(403, "access_denied")
     end
 
@@ -95,9 +93,12 @@ defmodule Samly.SPHandler do
   # SP-initiated flow auth response
   defp validate_authresp(conn, _assertion, relay_state) do
     %IdpData{id: idp_id} = conn.private[:samly_idp]
-    rs_in_session = get_session(conn, "relay_state")
-    idp_id_in_session = get_session(conn, "idp_id")
-    url_in_session = get_session(conn, "target_url")
+
+    rs_in_session = get_session(conn, "relay_state", relay_state)
+
+    idp_id_in_session = get_session(conn, "idp_id", idp_id)
+
+    url_in_session = get_session(conn, "target_url", "/")
 
     cond do
       rs_in_session == nil || rs_in_session != relay_state ->
